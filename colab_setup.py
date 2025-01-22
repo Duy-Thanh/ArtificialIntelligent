@@ -16,7 +16,7 @@ def setup_colab():
     
     # Clone the repository if not already present
     if not Path("ArtificialIntelligent").exists():
-        subprocess.run(["git", "clone", "https://github.com/your_username/ArtificialIntelligent.git"])
+        subprocess.run(["git", "clone", "https://github.com/Duy-Thanh/ArtificialIntelligent.git"])
         os.chdir("ArtificialIntelligent")
     
     # Create necessary directories
