@@ -8,10 +8,7 @@ DATA_DIR = Path("Datasets")  # Changed from "datasets" to "Datasets"
 DATASET_CONFIG = {
     "train": {
         "paths": [
-            DATA_DIR / "train-*-of-*.parquet",  # Handles sharded files
-            DATA_DIR / "train" / "*.jsonl",      # Also supports directory structure
-            DATA_DIR / "train" / "*.csv",
-            DATA_DIR / "train" / "*.parquet"
+            DATA_DIR / "train-*-of-*.parquet",
         ],
         "text_field": "text",
         "max_length": 512
@@ -19,9 +16,6 @@ DATASET_CONFIG = {
     "validation": {
         "paths": [
             DATA_DIR / "validation-*-of-*.parquet",
-            DATA_DIR / "validation" / "*.jsonl",
-            DATA_DIR / "validation" / "*.csv",
-            DATA_DIR / "validation" / "*.parquet"
         ],
         "text_field": "text",
         "max_length": 512
@@ -29,9 +23,6 @@ DATASET_CONFIG = {
     "test": {
         "paths": [
             DATA_DIR / "test-*-of-*.parquet",
-            DATA_DIR / "test" / "*.jsonl",
-            DATA_DIR / "test" / "*.csv",
-            DATA_DIR / "test" / "*.parquet"
         ],
         "text_field": "text",
         "max_length": 512

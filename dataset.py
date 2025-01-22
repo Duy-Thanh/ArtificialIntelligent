@@ -22,6 +22,7 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import wordnet, stopwords
 from nltk.tag import pos_tag
 import torch
+from config.data_config import DATASET_CONFIG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -836,7 +837,7 @@ def get_dataset_info(dataset: TextDataset) -> Dict:
 def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> Dataset:
     """Load a dataset split with preprocessing"""
     # Get base directory and split config
-    base_dir = Path("Datasets").resolve()  # Use resolved absolute path
+    base_dir = Path(os.environ.get('DATASET_DIR', 'Datasets')).resolve()  # Use environment variable
     logger.info(f"Looking for {split} dataset in: {base_dir}")
     
     split_config = DATASET_CONFIG.get(split)
@@ -845,9 +846,7 @@ def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> 
     
     # Find files directly using glob patterns
     file_patterns = [
-        str(base_dir / "train-*-of-*.parquet"),
-        str(base_dir / "validation-*-of-*.parquet"),
-        str(base_dir / "test-*-of-*.parquet")
+        str(base_dir / f"{split}-*-of-*.parquet"),  # Only look for files matching the split
     ]
     
     logger.info(f"Searching for files with patterns: {file_patterns}")
@@ -865,9 +864,7 @@ def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> 
         logger.info(f"Trying alternative path: {alt_base_dir}")
         
         alt_patterns = [
-            str(alt_base_dir / "train-*-of-*.parquet"),
-            str(alt_base_dir / "validation-*-of-*.parquet"),
-            str(alt_base_dir / "test-*-of-*.parquet")
+            str(alt_base_dir / f"{split}-*-of-*.parquet"),
         ]
         
         for pattern in alt_patterns:
@@ -884,4 +881,11 @@ def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> 
     logger.info(f"Found {len(matching_files)} files: {matching_files}")
     file_paths = sorted(matching_files)
     
-    # ... rest of the function ... 
+    # Load and preprocess dataset
+    return TextDataset(
+        file_paths,
+        tokenizer=tokenizer,
+        text_field=split_config.get("text_field", "text"),
+        max_length=split_config.get("max_length", 512),
+        **kwargs
+    ) 
