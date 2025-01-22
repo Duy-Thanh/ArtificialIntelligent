@@ -1,7 +1,6 @@
 import os
 import subprocess
 from pathlib import Path
-from datasets import load_dataset
 
 def setup_colab():
     """Set up Google Colab environment for training"""
@@ -10,32 +9,34 @@ def setup_colab():
     # Install required packages
     subprocess.run(["pip", "install", "-q", "transformers", "nltk", "pandas", "pyarrow", "tqdm", "datasets"])
     
-    # Download dataset from Hugging Face
-    dataset = load_dataset("your_username/your_dataset")
-    dataset.save_to_disk("datasets")
-    
     # Clone the repository if not already present
     if not Path("ArtificialIntelligent").exists():
         subprocess.run(["git", "clone", "https://github.com/Duy-Thanh/ArtificialIntelligent.git"])
         os.chdir("ArtificialIntelligent")
     
     # Create necessary directories
-    Path("checkpoints").mkdir(exist_ok=True)
-    Path("datasets").mkdir(exist_ok=True)
+    Path("Checkpoints").mkdir(exist_ok=True)
+    Path("Datasets").mkdir(exist_ok=True)
     
-    # Download dataset files
-    dataset_urls = [
-        "https://your-storage/train-00000-of-00002.parquet",
-        "https://your-storage/train-00001-of-00002.parquet",
-        "https://your-storage/validation-00000-of-00001.parquet"
+    # Check if datasets are available
+    dataset_files = [
+        "train-00000-of-00002.parquet",
+        "train-00001-of-00002.parquet",
+        "validation-00000-of-00001.parquet"
     ]
     
-    for url in dataset_urls:
-        filename = url.split('/')[-1]
-        output_path = f"datasets/{filename}"
-        if not Path(output_path).exists():
-            print(f"Downloading {filename}...")
-            subprocess.run(["wget", "-O", output_path, url])
+    datasets_present = all(
+        Path("Datasets", filename).exists() 
+        for filename in dataset_files
+    )
+    
+    if not datasets_present:
+        print("Please ensure the following files are in your Google Drive's Datasets folder:")
+        for file in dataset_files:
+            print(f"  - {file}")
+        print("\nThen run the notebook again.")
+    else:
+        print("Dataset files found successfully!")
     
     print("Setup complete!")
 
