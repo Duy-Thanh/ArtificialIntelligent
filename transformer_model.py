@@ -4,14 +4,31 @@ import torch.nn.functional as F
 import math
 
 class TransformerConfig:
-    def __init__(self, vocab_size=50257, max_position_embeddings=1024,
-                 n_layer=12, n_head=12, n_embd=768, dropout=0.1):
+    """Configuration class for transformer model"""
+    def __init__(
+        self,
+        vocab_size: int = 50257,
+        max_position_embeddings: int = 512,
+        n_layer: int = 4,
+        n_head: int = 8,
+        n_embd: int = 256,
+        dropout: float = 0.1,
+        layer_norm_epsilon: float = 1e-5,  # Added this parameter
+        bias: bool = True,
+        **kwargs  # Allow for future extensibility
+    ):
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.n_layer = n_layer
         self.n_head = n_head
         self.n_embd = n_embd
         self.dropout = dropout
+        self.layer_norm_epsilon = layer_norm_epsilon  # Store the new parameter
+        self.bias = bias
+        
+        # Store any additional kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, config):

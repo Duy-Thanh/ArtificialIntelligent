@@ -23,6 +23,7 @@ from nltk.corpus import wordnet, stopwords
 from nltk.tag import pos_tag
 import torch
 from config.data_config import DATASET_CONFIG
+from multiprocessing import Pool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -881,11 +882,34 @@ def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> 
     logger.info(f"Found {len(matching_files)} files: {matching_files}")
     file_paths = sorted(matching_files)
     
-    # Load and preprocess dataset
-    return TextDataset(
-        file_paths,
+    # Load data with parallel processing
+    with Pool(processes=os.cpu_count()) as pool:
+        # Load files in parallel
+        file_data = []
+        for file_path in file_paths:
+            logger.info(f"Loading data from {file_path}")
+            df = pd.read_parquet(file_path)
+            file_data.append(df)
+        
+        # Concatenate all dataframes
+        df = pd.concat(file_data, ignore_index=True)
+        
+        # Process texts in parallel chunks
+        chunk_size = 10000
+        text_chunks = [df['text'][i:i + chunk_size] for i in range(0, len(df), chunk_size)]
+        processed_chunks = pool.map(preprocess_texts, text_chunks)
+        
+        # Combine processed chunks
+        processed_texts = []
+        for chunk in processed_chunks:
+            processed_texts.extend(chunk)
+    
+    # Create dataset
+    dataset = TextDataset(
+        processed_texts,
         tokenizer=tokenizer,
-        text_field=split_config.get("text_field", "text"),
-        max_length=split_config.get("max_length", 512),
+        max_length=512,
         **kwargs
-    ) 
+    )
+    
+    return dataset 

@@ -231,6 +231,15 @@ def main():
         prefetch_factor = COLAB_CONFIG["prefetch_factor"]
         pin_memory = True
         persistent_workers = True
+        
+        # Extract training config
+        training_config = COLAB_CONFIG.get("training_config", {})
+        learning_rate = training_config.get("learning_rate", 5e-4)
+        warmup_steps = training_config.get("warmup_steps", 200)
+        weight_decay = training_config.get("weight_decay", 0.01)
+        max_grad_norm = training_config.get("max_grad_norm", 0.5)
+        
+        # Create model config
         config = TransformerConfig(
             vocab_size=tokenizer.vocab_size,
             max_position_embeddings=512,
@@ -244,13 +253,19 @@ def main():
         prefetch_factor = 4
         pin_memory = True
         persistent_workers = True
+        learning_rate = 3e-4
+        warmup_steps = 100
+        weight_decay = 0.0
+        max_grad_norm = 1.0
+        
         config = TransformerConfig(
             vocab_size=tokenizer.vocab_size,
             max_position_embeddings=512,
             n_layer=4,     
             n_head=8,
             n_embd=256,    
-            dropout=0.1
+            dropout=0.1,
+            layer_norm_epsilon=1e-5
         )
     
     # Initialize model with configuration
@@ -289,29 +304,31 @@ def main():
     if torch.cuda.is_available():
         logger.info(f"Model moved to GPU. Memory used: {torch.cuda.memory_allocated() / 1024**2:.0f}MB")
 
-    # Create dataloaders
+    # Create dataloaders with optimized multiprocessing
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=train_batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=pin_memory,
+        pin_memory=True,
         prefetch_factor=prefetch_factor,
-        persistent_workers=persistent_workers,
+        persistent_workers=True,
         drop_last=True,
         collate_fn=collate_fn,
-        multiprocessing_context='spawn'
+        multiprocessing_context='fork',  # Changed from 'spawn' to 'fork'
+        generator=torch.Generator().manual_seed(42)  # Add deterministic shuffling
     )
     
     val_dataloader = DataLoader(
         val_dataset, 
         batch_size=train_batch_size * 2,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        prefetch_factor=prefetch_factor,
-        persistent_workers=persistent_workers,
-        collate_fn=collate_fn
+        num_workers=2,  # Reduced workers for validation
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=True,
+        collate_fn=collate_fn,
+        multiprocessing_context='fork'  # Changed from 'spawn' to 'fork'
     )
 
     # Check for existing checkpoints
@@ -319,14 +336,18 @@ def main():
     checkpoint, checkpoint_type = load_checkpoint(save_dir)
     start_epoch = 0
     
-    # Initialize optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    # Initialize optimizer with weight decay
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay
+    )
     
-    # Create scheduler after dataloader is created
-    total_steps = len(train_dataloader) * 5  # Now train_dataloader exists
+    # Create scheduler
+    total_steps = len(train_dataloader) * 5
     scheduler = get_linear_schedule_with_warmup(
         optimizer, 
-        num_warmup_steps=100,
+        num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
     
@@ -371,7 +392,7 @@ def main():
         scheduler=scheduler,
         num_epochs=5,
         gradient_accumulation_steps=gradient_accumulation_steps,
-        max_grad_norm=1.0,
+        max_grad_norm=max_grad_norm,
         save_dir="checkpoints",
         start_epoch=start_epoch
     )
