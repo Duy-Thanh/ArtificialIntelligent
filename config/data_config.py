@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Dict, List
 
-# Base data directory
-DATA_DIR = Path("datasets")
+# Base data directory - update for Colab compatibility
+DATA_DIR = Path("Datasets")  # Changed from "datasets" to "Datasets"
 
 # Dataset configurations
 DATASET_CONFIG = {

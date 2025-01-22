@@ -833,76 +833,55 @@ def get_dataset_info(dataset: TextDataset) -> Dict:
         "max_length": dataset.max_length
     }
 
-def load_dataset_split(
-    split: str,
-    tokenizer: PreTrainedTokenizer,
-    config: Dict = None,
-    base_dir: Union[str, Path] = "datasets",
-    preprocessing_pipeline: Optional[Union[List[str], Callable]] = None,
-    preprocessing_kwargs: Dict = None,
-    max_samples: int = None,
-    **kwargs
-) -> TextDataset:
-    """Load a specific dataset split with preprocessing"""
-    if config is None:
-        from config.data_config import DATASET_CONFIG
-        config = DATASET_CONFIG
-
-    if split not in config:
-        raise ValueError(f"Split {split} not found in config")
-
-    split_config = config[split]
-    paths = split_config["paths"]
-    base_dir = Path(base_dir)
-
-    # First try to find sharded files
-    sharded_pattern = f"{split}-*-of-*.parquet"
-    sharded_files = list(base_dir.glob(sharded_pattern))
+def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> Dataset:
+    """Load a dataset split with preprocessing"""
+    # Get base directory and split config
+    base_dir = Path("Datasets").resolve()  # Use resolved absolute path
+    logger.info(f"Looking for {split} dataset in: {base_dir}")
     
-    if sharded_files:
-        logger.info(f"Found {len(sharded_files)} sharded files for {split}")
-        file_paths = [str(f) for f in sorted(sharded_files)]
-    else:
-        # Fall back to single file
-        single_file = base_dir / f"{split}.parquet"
-        if single_file.exists():
-            logger.info(f"Using single file: {single_file}")
-            file_paths = [str(single_file)]
-        else:
-            # Fall back to glob patterns from config
-            resolved_paths = []
-            for path in paths:
-                if isinstance(path, Path):
-                    path = str(path)
-                if not Path(path).is_absolute():
-                    path = str(base_dir / path)
-                resolved_paths.append(path)
-                
-            matching_files = []
-            for pattern in resolved_paths:
-                matches = glob.glob(pattern, recursive=True)
-                matching_files.extend(matches)
-                
-            if not matching_files:
-                raise ValueError(f"No files found for split {split} in {base_dir}")
-            
-            file_paths = sorted(matching_files)
-            logger.info(f"Using {len(file_paths)} files from patterns")
-
-    logger.info(f"Loading {split} dataset from: {file_paths}")
+    split_config = DATASET_CONFIG.get(split)
+    if not split_config:
+        raise ValueError(f"No configuration found for split: {split}")
     
-    # Add max_samples parameter for testing
-    if max_samples:
-        logger.info(f"Using only {max_samples} samples for testing")
-        kwargs['max_samples'] = max_samples
-
-    return TextDataset(
-        file_path=file_paths,
-        tokenizer=tokenizer,
-        text_field=split_config.get("text_field", "text"),
-        max_length=split_config.get("max_length", 512),
-        recursive=True,
-        preprocessing_pipeline=preprocessing_pipeline,
-        preprocessing_kwargs=preprocessing_kwargs,
-        **kwargs
-    ) 
+    # Find files directly using glob patterns
+    file_patterns = [
+        str(base_dir / "train-*-of-*.parquet"),
+        str(base_dir / "validation-*-of-*.parquet"),
+        str(base_dir / "test-*-of-*.parquet")
+    ]
+    
+    logger.info(f"Searching for files with patterns: {file_patterns}")
+    
+    # Find matching files
+    matching_files = []
+    for pattern in file_patterns:
+        matches = glob.glob(pattern)
+        logger.info(f"Pattern {pattern} matched files: {matches}")
+        matching_files.extend(matches)
+    
+    if not matching_files:
+        # Try alternative paths
+        alt_base_dir = Path("../Datasets").resolve()
+        logger.info(f"Trying alternative path: {alt_base_dir}")
+        
+        alt_patterns = [
+            str(alt_base_dir / "train-*-of-*.parquet"),
+            str(alt_base_dir / "validation-*-of-*.parquet"),
+            str(alt_base_dir / "test-*-of-*.parquet")
+        ]
+        
+        for pattern in alt_patterns:
+            matches = glob.glob(pattern)
+            logger.info(f"Alt pattern {pattern} matched files: {matches}")
+            matching_files.extend(matches)
+    
+    if not matching_files:
+        logger.error(f"Current directory: {Path.cwd()}")
+        logger.error(f"Directory contents: {list(Path.cwd().glob('*'))}")
+        logger.error(f"Datasets directory contents: {list(base_dir.glob('*'))}")
+        raise ValueError(f"No files found for split {split} in {base_dir}")
+    
+    logger.info(f"Found {len(matching_files)} files: {matching_files}")
+    file_paths = sorted(matching_files)
+    
+    # ... rest of the function ... 
