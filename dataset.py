@@ -502,7 +502,7 @@ class TextDataset(Dataset):
     
     def __init__(
         self,
-        file_path: Union[str, List[str]],
+        data_source: Union[str, Path, List[str], List[Path]],
         tokenizer: PreTrainedTokenizer,
         text_field: str = "text",
         max_length: int = 512,
@@ -539,47 +539,25 @@ class TextDataset(Dataset):
             self.augmentation_pipeline = augmenter.create_augmentation_pipeline(augmentation_pipeline)
         
         # Load texts
-        self.texts = self._load_data(file_path, text_field)
+        self.texts = self._load_data(data_source, text_field)
         
         # Initialize lazy loading attributes
         self._batch_size = batch_size
         self._cached_encodings = {}
         self._max_cache_size = 5  # Keep at most 5 batches in memory
         
-    def _load_data(
-        self,
-        file_path: Union[str, List[str]],
-        text_field: str,
-        file_type: str = None
-    ) -> List[str]:
-        """Load data from file(s) or directory based on format"""
-        
-        if isinstance(file_path, (str, Path)):
-            path = Path(file_path)
-            if path.is_dir():
-                # Directory handling
-                patterns = [f"**/*.{ext}" if self.recursive else f"*.{ext}"
-                          for ext in ['json', 'jsonl', 'csv', 'parquet']]
-                all_files = []
-                for pattern in patterns:
-                    all_files.extend(list(path.glob(pattern)))
-                return self._load_multiple_files(all_files, text_field, file_type)
-            else:
-                # Handle both sharded and regular file patterns
-                matching_files = TextDatasetLoader.get_files_from_pattern(path)
-                if matching_files:
-                    return self._load_multiple_files(matching_files, text_field, file_type)
-                else:
-                    return self._load_single_file(str(path), text_field, file_type)
-        elif isinstance(file_path, list):
-            # Handle list of patterns/paths
-            all_files = []
-            for pattern in file_path:
-                matched_files = TextDatasetLoader.get_files_from_pattern(pattern)
-                all_files.extend(matched_files)
-            return self._load_multiple_files(sorted(set(all_files)), text_field, file_type)
+    def _load_data(self, file_path, text_field):
+        """Load data from files"""
+        if isinstance(file_path, (str, Path)) or (
+            isinstance(file_path, list) and 
+            all(isinstance(x, (str, Path)) for x in file_path) and
+            any(str(x).endswith(('.parquet', '.csv', '.jsonl')) for x in file_path)
+        ):
+            # Data source is file path(s)
+            return self._load_multiple_files(file_path, text_field)
         else:
-            raise ValueError(f"Unsupported file_path type: {type(file_path)}")
+            # Data source is preprocessed texts
+            return file_path if isinstance(file_path, list) else [file_path]
     
     def _load_multiple_files(
         self,
@@ -835,6 +813,32 @@ def get_dataset_info(dataset: TextDataset) -> Dict:
         "max_length": dataset.max_length
     }
 
+def preprocess_texts(texts: List[str]) -> List[str]:
+    """Process a chunk of texts in parallel"""
+    processed = []
+    for text in texts:
+        # Basic cleaning
+        text = str(text).strip()
+        
+        # Remove URLs
+        text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
+        
+        # Remove email addresses
+        text = re.sub(r'\S+@\S+', '', text)
+        
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        
+        # Remove special characters but keep punctuation
+        text = re.sub(r'[^\w\s.,!?-]', '', text)
+        
+        # Skip empty texts
+        if text and len(text.split()) > 3:  # Require at least 3 words
+            processed.append(text)
+    
+    return processed
+
 def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> Dataset:
     """Load a dataset split with preprocessing"""
     # Get base directory and split config
@@ -893,20 +897,26 @@ def load_dataset_split(split: str, tokenizer: PreTrainedTokenizer, **kwargs) -> 
         
         # Concatenate all dataframes
         df = pd.concat(file_data, ignore_index=True)
+        logger.info(f"Loaded {len(df)} total samples")
         
         # Process texts in parallel chunks
         chunk_size = 10000
-        text_chunks = [df['text'][i:i + chunk_size] for i in range(0, len(df), chunk_size)]
+        text_chunks = [df['text'][i:i + chunk_size].tolist() for i in range(0, len(df), chunk_size)]
+        logger.info(f"Processing {len(text_chunks)} chunks of size {chunk_size}")
+        
         processed_chunks = pool.map(preprocess_texts, text_chunks)
         
         # Combine processed chunks
         processed_texts = []
         for chunk in processed_chunks:
             processed_texts.extend(chunk)
+        
+        logger.info(f"Processed {len(processed_texts)} texts after filtering")
     
-    # Create dataset
+    # Create dataset with preprocessed texts
+    logger.info(f"Creating dataset from {len(processed_texts)} processed texts")
     dataset = TextDataset(
-        processed_texts,
+        data_source=processed_texts,  # Pass preprocessed texts directly
         tokenizer=tokenizer,
         max_length=512,
         **kwargs
