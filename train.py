@@ -60,7 +60,7 @@ def train_model(
         for epoch in range(start_epoch, num_epochs):
             model.train()
             total_train_loss = 0
-            optimizer.zero_grad()
+            train_steps = 0
             
             train_pbar = tqdm(train_dataloader, desc=f'Epoch {epoch + 1}/{num_epochs} [Train]')
             
@@ -76,6 +76,9 @@ def train_model(
                     labels = batch['labels'].view(-1)
                     loss = nn.CrossEntropyLoss()(logits, labels)
                     loss = loss / gradient_accumulation_steps
+                
+                total_train_loss += loss.item() * gradient_accumulation_steps
+                train_steps += 1
                 
                 # Backward pass with gradient scaling
                 scaler.scale(loss).backward()
@@ -101,7 +104,8 @@ def train_model(
                     'train_loss': loss.item() * gradient_accumulation_steps,
                     'learning_rate': scheduler.get_last_lr()[0]
                 })
-            avg_train_loss = total_train_loss / len(train_dataloader)
+            
+            current_train_loss = total_train_loss / train_steps if train_steps > 0 else float('inf')
             
             # Validation
             model.eval()
@@ -128,7 +132,7 @@ def train_model(
             # Log epoch metrics
             metrics.log_epoch({
                 'epoch': epoch + 1,
-                'train_loss': avg_train_loss,
+                'train_loss': current_train_loss,
                 'val_loss': avg_val_loss,
                 'learning_rate': scheduler.get_last_lr()[0]
             })
@@ -136,12 +140,20 @@ def train_model(
             # Save checkpoint if best model
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
-                save_checkpoint(model, optimizer, scheduler, epoch, avg_train_loss, avg_val_loss, save_dir / f'best_model.pt', is_best=True)
+                save_checkpoint(model, optimizer, scheduler, epoch, current_train_loss, avg_val_loss, save_dir / f'best_model.pt', is_best=True)
     except KeyboardInterrupt:
         logger.info("Training interrupted by user")
-        # Save checkpoint
-        save_checkpoint(model, optimizer, scheduler, epoch, avg_train_loss, avg_val_loss, save_dir / 'interrupted_checkpoint.pt', is_best=False)
-        logger.info("Saved interrupt checkpoint")
+        current_train_loss = total_train_loss / train_steps if train_steps > 0 else float('inf')
+        current_val_loss = float('inf')  # We don't have validation loss during interruption
+        
+        # Save checkpoint with current losses
+        save_checkpoint(
+            model, optimizer, scheduler, epoch, 
+            current_train_loss, current_val_loss, 
+            save_dir / 'interrupted_checkpoint.pt', 
+            is_best=False
+        )
+        logger.info(f"Saved interrupt checkpoint with train loss: {current_train_loss:.4f}")
     
     # Save final metrics and plots
     metrics.save_metrics()
@@ -216,6 +228,9 @@ def main():
         train_batch_size = COLAB_CONFIG["batch_size"]
         gradient_accumulation_steps = COLAB_CONFIG["gradient_accumulation_steps"]
         num_workers = COLAB_CONFIG["num_workers"]
+        prefetch_factor = COLAB_CONFIG["prefetch_factor"]
+        pin_memory = True
+        persistent_workers = True
         config = TransformerConfig(
             vocab_size=tokenizer.vocab_size,
             max_position_embeddings=512,
@@ -226,6 +241,9 @@ def main():
         train_batch_size = 8
         gradient_accumulation_steps = 8
         num_workers = 4
+        prefetch_factor = 4
+        pin_memory = True
+        persistent_workers = True
         config = TransformerConfig(
             vocab_size=tokenizer.vocab_size,
             max_position_embeddings=512,
